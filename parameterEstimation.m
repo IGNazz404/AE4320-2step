@@ -1,0 +1,369 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%   Aerodynamic Model Identification
+%
+%   Author: Y.J.E. Prencipe, based on C.C. de Visser
+%   Student Number: 4777158
+%   Course: AE4320 System Identification of Aerospace Vehicles
+%   Place: Delft University of Technology, 2023
+%   Email: y.j.e.prencipe@student.tudelft.nl
+%   Version: 3.0
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+clc;
+close all;
+clear all;
+randn('seed', 7);
+
+aircraftParameters;
+
+%%
+disp("Running OLS for Identification Dataset"); OLS_Identification;
+%%
+disp(" ");
+disp("Running OLS for Validation Dataset"); OLS_Validation;
+%%
+disp(" ");
+disp("Running WLS for Identification Dataset"); WLS_Identification;
+%%
+disp(" ");
+disp("Running WLS for Validation Dataset"); WLS_Validation;
+
+%% R2 Results
+% R2matrixM1  =     [OLS.ID.R2.Cx, OLS.ID.R2.Cy, OLS.ID.R2.Cz, OLS.ID.R2.Cl, OLS.ID.R2.Cm, OLS.ID.R2.Cn;
+%                 OLS.VAL.R2.Cx, OLS.VAL.R2.Cy, OLS.VAL.R2.Cz, OLS.VAL.R2.Cl, OLS.VAL.R2.Cm, OLS.VAL.R2.Cn;
+%                 WLS.ID.R2.Cx, WLS.ID.R2.Cy, WLS.ID.R2.Cz, WLS.ID.R2.Cl, WLS.ID.R2.Cm, WLS.ID.R2.Cn;
+%                 WLS.VAL.R2.Cx, WLS.VAL.R2.Cy, WLS.VAL.R2.Cz, WLS.VAL.R2.Cl, WLS.VAL.R2.Cm, WLS.VAL.R2.Cn];
+% rowNames = {'OLS.ID','OLS.VAL','WLS.ID', 'WLS.VAL'};
+% colNames = {'Cx','Cy','Cz', 'Cl','Cm','Cn'};
+% R2tableM1 = array2table(R2matrixM1,'RowNames',rowNames,'VariableNames',colNames);
+% 
+% R2matrixM2  =     [OLS.ID.M2.R2.Cx, OLS.ID.M2.R2.Cy, OLS.ID.M2.R2.Cz, OLS.ID.M2.R2.Cl, OLS.ID.M2.R2.Cm, OLS.ID.M2.R2.Cn;
+%                 OLS.VAL.M2.R2.Cx, OLS.VAL.M2.R2.Cy, OLS.VAL.M2.R2.Cz, OLS.VAL.M2.R2.Cl, OLS.VAL.M2.R2.Cm, OLS.VAL.M2.R2.Cn;
+%                 WLS.ID.M2.R2.Cx, WLS.ID.M2.R2.Cy, WLS.ID.M2.R2.Cz, WLS.ID.M2.R2.Cl, WLS.ID.M2.R2.Cm, WLS.ID.M2.R2.Cn;
+%                 WLS.VAL.M2.R2.Cx, WLS.VAL.M2.R2.Cy, WLS.VAL.M2.R2.Cz, WLS.VAL.M2.R2.Cl, WLS.VAL.M2.R2.Cm, WLS.VAL.M2.R2.Cn];
+% rowNames = {'OLS.ID','OLS.VAL','WLS.ID', 'WLS.VAL'};
+% colNames = {'Cx','Cy','Cz', 'Cl','Cm','Cn'};
+% R2tableM2 = array2table(R2matrixM2,'RowNames',rowNames,'VariableNames',colNames);
+
+%% Noisy Time Series Derivative p-,q-,rdot
+% subplot(3,1,1); plot(gradient(pc,dt));  hold on; plot(pdot); hold off; grid on;
+% title("$\dot{p}$", 'Interpreter', 'latex'); legend("Raw", "Savitzky-Golay Filtered"); xlabel("Sample"); ylabel("Angular Acceleration [rad/s^2]")
+% subplot(3,1,2); plot(gradient(qc,dt));  hold on; plot(qdot); hold off; grid on;
+% title("$\dot{q}$", 'Interpreter', 'latex'); legend("Raw", "Savitzky-Golay Filtered"); xlabel("Sample"); ylabel("Angular Acceleration [rad/s^2]")
+% subplot(3,1,3); plot(gradient(rc,dt));  hold on; plot(rdot); hold off; grid on;
+% title("$\dot{r}$", 'Interpreter', 'latex'); legend("Raw", "Savitzky-Golay Filtered"); xlabel("Sample"); ylabel("Angular Acceleration [rad/s^2]")
+
+%% Dominance Tester
+% disp(" ");
+% disp("Running dominance tester"); dominance_Tester;
+% disp(" ")
+
+%% Original Model Result Plots
+
+% Only OLS Identification
+% figure('Position', [100, 100, 700, 500]); % Width: 700 pixels, Height: 500 pixelshold on;
+% subplot(3,2,1);
+% plot(1:length(OLS.ID.Y.YCx_datasets),OLS.ID.Y.YCx_datasets, 'r--', 1:length(OLS.ID.Model.Cx), OLS.ID.Model.Cx, 'k-');  grid on;
+% ylabel("$C_x$", 'Interpreter', 'latex'); legend("Measured", "OLS");
+% subplot(3,2,2);
+% plot(1:length(OLS.ID.Y.YCy_datasets),OLS.ID.Y.YCy_datasets, 'r--', 1:length(OLS.ID.Model.Cy), OLS.ID.Model.Cy, 'k-');  grid on;
+% ylabel("$C_y$", 'Interpreter', 'latex'); legend("Measured", "OLS");
+% subplot(3,2,3);
+% plot(1:length(OLS.ID.Y.YCz_datasets),OLS.ID.Y.YCz_datasets, 'r--', 1:length(OLS.ID.Model.Cz), OLS.ID.Model.Cz, 'k-');  grid on;
+% ylabel("$C_z$", 'Interpreter', 'latex'); legend("Measured", "OLS");
+% subplot(3,2,4);
+% plot(1:length(OLS.ID.Y.YCl_datasets),OLS.ID.Y.YCl_datasets, 'r--', 1:length(OLS.ID.Model.Cl), OLS.ID.Model.Cl, 'k-');  grid on;
+% ylabel("$C_l$", 'Interpreter', 'latex'); legend("Measured", "OLS");
+% subplot(3,2,5);
+% plot(1:length(OLS.ID.Y.YCm_datasets),OLS.ID.Y.YCm_datasets, 'r--', 1:length(OLS.ID.Model.Cm), OLS.ID.Model.Cm, 'k-');  grid on;
+% ylabel("$C_m$", 'Interpreter', 'latex'); legend("Measured", "OLS");
+% subplot(3,2,6);
+% plot(1:length(OLS.ID.Y.YCn_datasets),OLS.ID.Y.YCn_datasets, 'r--', 1:length(OLS.ID.Model.Cn), OLS.ID.Model.Cn, 'k-');  grid on;
+% ylabel("$C_n$", 'Interpreter', 'latex'); legend("Measured", "OLS");
+% % sgtitle("OLS Identification Results")
+
+% Identification Plots
+% figure('Position', [100, 100, 700, 500]); hold on;
+% subplot(3,2,1);
+% plot(1:length(OLS.ID.Y.YCx_datasets),OLS.ID.Y.YCx_datasets, 'r--', 1:length(OLS.ID.Model.Cx), OLS.ID.Model.Cx, 'k-', 1:length(WLS.ID.Model.Cx), WLS.ID.Model.Cx);  grid on;
+% title("Cx"); ylabel("Cx"); legend("Measured", "OLS", "WLS");
+% subplot(3,2,2);
+% plot(1:length(OLS.ID.Y.YCy_datasets),OLS.ID.Y.YCy_datasets, 'r--', 1:length(OLS.ID.Model.Cy), OLS.ID.Model.Cy, 'k-', 1:length(WLS.ID.Model.Cy), WLS.ID.Model.Cy);  grid on;
+% title("Cy"); ylabel("Cy"); legend("Measured", "OLS", "WLS");
+% subplot(3,2,3);
+% plot(1:length(OLS.ID.Y.YCz_datasets),OLS.ID.Y.YCz_datasets, 'r--', 1:length(OLS.ID.Model.Cz), OLS.ID.Model.Cz, 'k-', 1:length(WLS.ID.Model.Cz), WLS.ID.Model.Cz);  grid on;
+% title("Cz"); ylabel("Cz"); legend("Measured", "OLS", "WLS");
+% subplot(3,2,4);
+% plot(1:length(OLS.ID.Y.YCl_datasets),OLS.ID.Y.YCl_datasets, 'r--', 1:length(OLS.ID.Model.Cl), OLS.ID.Model.Cl, 'k-', 1:length(WLS.ID.Model.Cl), WLS.ID.Model.Cl);  grid on;
+% title("Cl"); ylabel("Cl"); legend("Measured", "OLS", "WLS");
+% subplot(3,2,5);
+% plot(1:length(OLS.ID.Y.YCm_datasets),OLS.ID.Y.YCm_datasets, 'r--', 1:length(OLS.ID.Model.Cm), OLS.ID.Model.Cm, 'k-', 1:length(WLS.ID.Model.Cm), WLS.ID.Model.Cm);  grid on;
+% title("Cm"); ylabel("Cm"); legend("Measured", "OLS", "WLS");
+% subplot(3,2,6);
+% plot(1:length(OLS.ID.Y.YCn_datasets),OLS.ID.Y.YCn_datasets, 'r--', 1:length(OLS.ID.Model.Cn), OLS.ID.Model.Cn, 'k-', 1:length(WLS.ID.Model.Cn), WLS.ID.Model.Cn);  grid on;
+% title("Cn"); ylabel("Cn"); legend("Measured", "OLS", "WLS");
+% % sgtitle("OLS/WLS Identification Results")
+
+% Validation PlotsID.
+% figure('Position', [100, 100, 700, 500]); hold on;
+% subplot(2,3,1);
+% plot(1:length(OLS.VAL.Y.YCx_datasets),OLS.VAL.Y.YCx_datasets, 'r--', 1:length(OLS.VAL.Model.Cx), OLS.VAL.Model.Cx, 'k-', 1:length(WLS.VAL.Model.Cx), WLS.VAL.Model.Cx);  grid on;
+% title("$C_x$", 'Interpreter', 'latex'); ylabel("Cx"); legend("Measured", "OLS", "WLS");
+% subplot(2,3,2);
+% plot(1:length(OLS.VAL.Y.YCy_datasets),OLS.VAL.Y.YCy_datasets, 'r--', 1:length(OLS.VAL.Model.Cy), OLS.VAL.Model.Cy, 'k-', 1:length(WLS.VAL.Model.Cy), WLS.VAL.Model.Cy);  grid on;
+% title("$C_y$", 'Interpreter', 'latex'); ylabel("Cy"); legend("Measured", "OLS", "WLS");
+% subplot(2,3,3);
+% plot(1:length(OLS.VAL.Y.YCz_datasets),OLS.VAL.Y.YCz_datasets, 'r--', 1:length(OLS.VAL.Model.Cz), OLS.VAL.Model.Cz, 'k-', 1:length(WLS.VAL.Model.Cz), WLS.VAL.Model.Cz);  grid on;
+% title("$C_z$", 'Interpreter', 'latex'); ylabel("Cz"); legend("Measured", "OLS", "WLS");
+% subplot(2,3,4);
+% plot(1:length(OLS.VAL.Y.YCl_datasets),OLS.VAL.Y.YCl_datasets, 'r--', 1:length(OLS.VAL.Model.Cl), OLS.VAL.Model.Cl, 'k-', 1:length(WLS.VAL.Model.Cl), WLS.VAL.Model.Cl);  grid on;
+% title("$C_l$", 'Interpreter', 'latex'); ylabel("Cl"); legend("Measured", "OLS", "WLS");
+% subplot(2,3,5);
+% plot(1:length(OLS.VAL.Y.YCm_datasets),OLS.VAL.Y.YCm_datasets, 'r--', 1:length(OLS.VAL.Model.Cm), OLS.VAL.Model.Cm, 'k-', 1:length(WLS.VAL.Model.Cm), WLS.VAL.Model.Cm);  grid on;
+% title("$C_m$", 'Interpreter', 'latex'); ylabel("Cm"); legend("Measured", "OLS", "WLS");
+% subplot(2,3,6);
+% plot(1:length(OLS.VAL.Y.YCn_datasets),OLS.VAL.Y.YCn_datasets, 'r--', 1:length(OLS.VAL.Model.Cn), OLS.VAL.Model.Cn, 'k-', 1:length(WLS.VAL.Model.Cn), WLS.VAL.Model.Cn);  grid on;
+% % title("$C_n$", 'Interpreter', 'latex'); ylabel("Cn"); legend("Measured", "OLS", "WLS");
+
+%% Alternative Model Result Plots
+% close all;
+
+% Identification Plots
+% figure('Position', [100, 100, 700, 500]); hold on;
+% subplot(2,3,1);
+% plot(1:length(OLS.ID.Y.YCx_datasets),OLS.ID.Y.YCx_datasets, 'r--', 1:length(OLS.ID.M2.Model.Cx), OLS.ID.M2.Model.Cx, 'k-', 1:length(WLS.ID.M2.Model.Cx), WLS.ID.M2.Model.Cx);  grid on;
+% title("$C_x$", 'Interpreter', 'latex'); ylabel("Cx"); % legend("Measured", "OLS", "WLS");
+% subplot(2,3,2);
+% plot(1:length(OLS.ID.Y.YCy_datasets),OLS.ID.Y.YCy_datasets, 'r--', 1:length(OLS.ID.M2.Model.Cy), OLS.ID.M2.Model.Cy, 'k-', 1:length(WLS.ID.M2.Model.Cy), WLS.ID.M2.Model.Cy);  grid on;
+% title("$C_y$", 'Interpreter', 'latex'); ylabel("Cy"); % legend("Measured", "OLS", "WLS");
+% subplot(2,3,3);
+% plot(1:length(OLS.ID.Y.YCz_datasets),OLS.ID.Y.YCz_datasets, 'r--', 1:length(OLS.ID.M2.Model.Cz), OLS.ID.M2.Model.Cz, 'k-', 1:length(WLS.ID.M2.Model.Cz), WLS.ID.M2.Model.Cz);  grid on;
+% title("$C_z$", 'Interpreter', 'latex'); ylabel("Cz"); legend("Measured", "OLS", "WLS");
+% subplot(2,3,4);
+% plot(1:length(OLS.ID.Y.YCl_datasets),OLS.ID.Y.YCl_datasets, 'r--', 1:length(OLS.ID.M2.Model.Cl), OLS.ID.M2.Model.Cl, 'k-', 1:length(WLS.ID.M2.Model.Cl), WLS.ID.M2.Model.Cl);  grid on;
+% title("$C_l$", 'Interpreter', 'latex'); ylabel("Cl"); % legend("Measured", "OLS", "WLS");
+% subplot(2,3,5);
+% plot(1:length(OLS.ID.Y.YCm_datasets),OLS.ID.Y.YCm_datasets, 'r--', 1:length(OLS.ID.M2.Model.Cm), OLS.ID.M2.Model.Cm, 'k-', 1:length(WLS.ID.M2.Model.Cm), WLS.ID.M2.Model.Cm);  grid on;
+% title("$C_m$", 'Interpreter', 'latex'); ylabel("Cm"); % legend("Measured", "OLS", "WLS");
+% subplot(2,3,6);
+% plot(1:length(OLS.ID.Y.YCn_datasets),OLS.ID.Y.YCn_datasets, 'r--', 1:length(OLS.ID.M2.Model.Cn), OLS.ID.M2.Model.Cn, 'k-', 1:length(WLS.ID.M2.Model.Cn), WLS.ID.M2.Model.Cn);  grid on;
+% title("$C_n$", 'Interpreter', 'latex'); ylabel("Cn"); % legend("Measured", "OLS", "WLS");
+% % sgtitle("OLS/WLS Identification Results")
+
+% Validation Plots
+% figure('Position', [100, 100, 700, 500]); hold on;
+% subplot(2,3,1);
+% plot(1:length(OLS.VAL.Y.YCx_datasets),OLS.VAL.Y.YCx_datasets, 'r--', 1:length(OLS.VAL.M2.Model.Cx), OLS.VAL.M2.Model.Cx, 'k-', 1:length(WLS.VAL.M2.Model.Cx), WLS.VAL.M2.Model.Cx);  grid on;
+% title("$C_x$", 'Interpreter', 'latex'); ylabel("Cx"); % legend("Measured", "OLS", "WLS");
+% subplot(2,3,2);
+% plot(1:length(OLS.VAL.Y.YCy_datasets),OLS.VAL.Y.YCy_datasets, 'r--', 1:length(OLS.VAL.M2.Model.Cy), OLS.VAL.M2.Model.Cy, 'k-', 1:length(WLS.VAL.M2.Model.Cy), WLS.VAL.M2.Model.Cy);  grid on;
+% title("$C_y$", 'Interpreter', 'latex'); ylabel("Cy"); % legend("Measured", "OLS", "WLS");
+% subplot(2,3,3);
+% plot(1:length(OLS.VAL.Y.YCz_datasets),OLS.VAL.Y.YCz_datasets, 'r--', 1:length(OLS.VAL.M2.Model.Cz), OLS.VAL.M2.Model.Cz, 'k-', 1:length(WLS.VAL.M2.Model.Cz), WLS.VAL.M2.Model.Cz);  grid on;
+% title("$C_z$", 'Interpreter', 'latex'); ylabel("Cz"); legend("Measured", "OLS", "WLS");
+% subplot(2,3,4);
+% plot(1:length(OLS.VAL.Y.YCl_datasets),OLS.VAL.Y.YCl_datasets, 'r--', 1:length(OLS.VAL.M2.Model.Cl), OLS.VAL.M2.Model.Cl, 'k-', 1:length(WLS.VAL.M2.Model.Cl), WLS.VAL.M2.Model.Cl);  grid on;
+% title("$C_l$", 'Interpreter', 'latex'); ylabel("Cl"); % legend("Measured", "OLS", "WLS");
+% subplot(2,3,5);
+% plot(1:length(OLS.VAL.Y.YCm_datasets),OLS.VAL.Y.YCm_datasets, 'r--', 1:length(OLS.VAL.M2.Model.Cm), OLS.VAL.M2.Model.Cm, 'k-', 1:length(WLS.VAL.M2.Model.Cm), WLS.VAL.M2.Model.Cm);  grid on;
+% title("$C_m$", 'Interpreter', 'latex'); ylabel("Cm"); % legend("Measured", "OLS", "WLS");
+% subplot(2,3,6);
+% plot(1:length(OLS.VAL.Y.YCn_datasets),OLS.VAL.Y.YCn_datasets, 'r--', 1:length(OLS.VAL.M2.Model.Cn), OLS.VAL.M2.Model.Cn, 'k-', 1:length(WLS.VAL.M2.Model.Cn), WLS.VAL.M2.Model.Cn);  grid on;
+% title("$C_n$", 'Interpreter', 'latex'); ylabel("Cn"); % legend("Measured", "OLS", "WLS");
+% % sgtitle("OLS Validation Results")
+
+%% RMS Residual Analysis
+% figure('Position', [100, 100, 700, 500]);
+% subplot(1,3,1);
+% bar([OLS.ID.RMSResiduals.Cx OLS.VAL.RMSResiduals.Cx WLS.ID.RMSResiduals.Cx WLS.VAL.RMSResiduals.Cx; ...
+%     OLS.ID.RMSResiduals.Cy OLS.VAL.RMSResiduals.Cy WLS.ID.RMSResiduals.Cy WLS.VAL.RMSResiduals.Cy; ...
+%     OLS.ID.RMSResiduals.Cz OLS.VAL.RMSResiduals.Cz WLS.ID.RMSResiduals.Cz WLS.VAL.RMSResiduals.Cz;...
+%     OLS.ID.RMSResiduals.Cl OLS.VAL.RMSResiduals.Cl WLS.ID.RMSResiduals.Cl WLS.VAL.RMSResiduals.Cl;...
+%     OLS.ID.RMSResiduals.Cm OLS.VAL.RMSResiduals.Cm WLS.ID.RMSResiduals.Cm WLS.VAL.RMSResiduals.Cm;...
+%     OLS.ID.RMSResiduals.Cn OLS.VAL.RMSResiduals.Cn WLS.ID.RMSResiduals.Cn WLS.VAL.RMSResiduals.Cn])
+% title("Original Model Structure"); ylabel("Residual Error"); grid on; 
+% legend("OLS Identification Model", "OLS Validation Model", "WLS Identification Model", "WLS Validation Model"); 
+% set(gca,'xticklabel',{'Cx', 'Cy', 'Cz', 'Cl', 'Cm', 'Cn'})
+% subplot(1,3,2);
+% bar([OLS.ID.M2.RMSResiduals.Cx OLS.VAL.M2.RMSResiduals.Cx WLS.ID.M2.RMSResiduals.Cx WLS.VAL.M2.RMSResiduals.Cx; ...
+%     OLS.ID.M2.RMSResiduals.Cy OLS.VAL.M2.RMSResiduals.Cy WLS.ID.M2.RMSResiduals.Cy WLS.VAL.M2.RMSResiduals.Cy; ...
+%     OLS.ID.M2.RMSResiduals.Cz OLS.VAL.M2.RMSResiduals.Cz WLS.ID.M2.RMSResiduals.Cz WLS.VAL.M2.RMSResiduals.Cz;...
+%     OLS.ID.M2.RMSResiduals.Cl OLS.VAL.M2.RMSResiduals.Cl WLS.ID.M2.RMSResiduals.Cl WLS.VAL.M2.RMSResiduals.Cl;...
+%     OLS.ID.M2.RMSResiduals.Cm OLS.VAL.M2.RMSResiduals.Cm WLS.ID.M2.RMSResiduals.Cm WLS.VAL.M2.RMSResiduals.Cm;...
+%     OLS.ID.M2.RMSResiduals.Cn OLS.VAL.M2.RMSResiduals.Cn WLS.ID.M2.RMSResiduals.Cn WLS.VAL.M2.RMSResiduals.Cn])
+% title("Alternative Model Structure"); ylabel("Residual Error"); grid on;
+% ylim([0,0.06]);
+% legend("OLS Identification Model", "OLS Validation Model", "WLS Identification Model", "WLS Validation Model"); 
+% set(gca,'xticklabel',{'Cx', 'Cy', 'Cz', 'Cl', 'Cm', 'Cn'})
+% subplot(1,3,3);
+% bar([OLS.ID.M2.RMSResiduals.Cx OLS.VAL.M2.RMSResiduals.Cx WLS.ID.M2.RMSResiduals.Cx WLS.VAL.M2.RMSResiduals.Cx; ...
+%     OLS.ID.M2.RMSResiduals.Cy OLS.VAL.M2.RMSResiduals.Cy WLS.ID.M2.RMSResiduals.Cy WLS.VAL.M2.RMSResiduals.Cy; ...
+%     OLS.ID.M2.RMSResiduals.Cz OLS.VAL.M2.RMSResiduals.Cz WLS.ID.M2.RMSResiduals.Cz WLS.VAL.M2.RMSResiduals.Cz;...
+%     OLS.ID.M2.RMSResiduals.Cl OLS.VAL.M2.RMSResiduals.Cl WLS.ID.M2.RMSResiduals.Cl WLS.VAL.M2.RMSResiduals.Cl;...
+%     OLS.ID.M2.RMSResiduals.Cm OLS.VAL.M2.RMSResiduals.Cm WLS.ID.M2.RMSResiduals.Cm WLS.VAL.M2.RMSResiduals.Cm;...
+%     OLS.ID.M2.RMSResiduals.Cn OLS.VAL.M2.RMSResiduals.Cn WLS.ID.M2.RMSResiduals.Cn WLS.VAL.M2.RMSResiduals.Cn])
+% title("M2 Zoom"); ylabel("Residual Error"); grid on;
+% legend("OLS Identification Model", "OLS Validation Model", "WLS Identification Model", "WLS Validation Model"); 
+% set(gca,'xticklabel',{'Cx', 'Cy', 'Cz', 'Cl', 'Cm', 'Cn'})
+
+%% Residual Normality Analysis
+% close all;
+% res.DW = zeros(1,6);
+% 
+% % Anderson-Darling Test, H==0 means the samples are normally distributed
+% [res.H(1)] = adtest(OLS.ID.M2.Residuals.Cx);
+% [res.H(2)] = adtest(OLS.ID.M2.Residuals.Cy);
+% [res.H(3)] = adtest(OLS.ID.M2.Residuals.Cz);
+% [res.H(4)] = adtest(OLS.ID.M2.Residuals.Cl);
+% [res.H(5)] = adtest(OLS.ID.M2.Residuals.Cm);
+% [res.H(6)] = adtest(OLS.ID.M2.Residuals.Cn);
+% 
+% figure('Position', [100, 100, 700, 500]);
+% subplot(2,3,1); qqplot(OLS.ID.M2.Residuals.Cx); title("$C_x$", 'Interpreter', 'latex');
+% subplot(2,3,2); qqplot(OLS.ID.M2.Residuals.Cy); title("$C_y$", 'Interpreter', 'latex');
+% subplot(2,3,3); qqplot(OLS.ID.M2.Residuals.Cz); title("$C_z$", 'Interpreter', 'latex');
+% subplot(2,3,4); qqplot(OLS.ID.M2.Residuals.Cl); title("$C_l$", 'Interpreter', 'latex');
+% subplot(2,3,5); qqplot(OLS.ID.M2.Residuals.Cm); title("$C_m$", 'Interpreter', 'latex');
+% subplot(2,3,6); qqplot(OLS.ID.M2.Residuals.Cn); title("$C_n$", 'Interpreter', 'latex');
+% 
+% % Store means of the data
+% res.mu = [mean(OLS.ID.M2.Residuals.Cx), mean(OLS.ID.M2.Residuals.Cy), mean(OLS.ID.M2.Residuals.Cz), mean(OLS.ID.M2.Residuals.Cl), mean(OLS.ID.M2.Residuals.Cm), mean(OLS.ID.M2.Residuals.Cn)];
+% 
+% % Store standard deviation 
+% res.sigma = [std(OLS.ID.M2.Residuals.Cx), std(OLS.ID.M2.Residuals.Cy), std(OLS.ID.M2.Residuals.Cz), std(OLS.ID.M2.Residuals.Cl), std(OLS.ID.M2.Residuals.Cm), std(OLS.ID.M2.Residuals.Cn)]; 
+% 
+% % Create range of x-values
+% res.norm.x =    [linspace(res.mu(1) - 3*res.sigma(1), res.mu(1) + 3*res.sigma(1), 1000)', ...
+%                 linspace(res.mu(2) - 3*res.sigma(2), res.mu(2) + 3*res.sigma(2), 1000)', ...
+%                 linspace(res.mu(3) - 3*res.sigma(3), res.mu(3) + 3*res.sigma(3), 1000)', ...
+%                 linspace(res.mu(4) - 3*res.sigma(4), res.mu(4) + 3*res.sigma(4), 1000)', ...
+%                 linspace(res.mu(5) - 3*res.sigma(5), res.mu(5) + 3*res.sigma(5), 1000)', ...
+%                 linspace(res.mu(6) - 3*res.sigma(6), res.mu(6) + 3*res.sigma(6), 1000)']; % Adjust the bin size as needed
+% 
+% % Compute the PDF values for the normal distribution
+% res.norm.pdf_normal =   [normpdf(res.norm.x(:,1), res.mu(1), res.sigma(1)), ...
+%                         normpdf(res.norm.x(:,2), res.mu(2), res.sigma(2)), ...
+%                         normpdf(res.norm.x(:,3), res.mu(3), res.sigma(3)), ...
+%                         normpdf(res.norm.x(:,4), res.mu(4), res.sigma(4)), ...
+%                         normpdf(res.norm.x(:,5), res.mu(5), res.sigma(5)), ...
+%                         normpdf(res.norm.x(:,6), res.mu(6), res.sigma(6))];
+% 
+% figure('Position', [100, 100, 700, 500]);
+% subplot(2,3,1);
+% % plot(res.norm.x(:,1), res.norm.pdf_normal(:,1), 'LineWidth', 2); hold on; 
+% histogram(OLS.ID.M2.Residuals.Cx,20000); legend("Histogram"); grid on; 
+% title("$C_x$", 'Interpreter', 'latex'); xlabel('Residuals'); ylabel('Probability Density'); hold off;
+% subplot(2,3,2);
+% % plot(res.norm.x(:,2), res.norm.pdf_normal(:,2), 'LineWidth', 2); hold on;
+% histogram(OLS.ID.M2.Residuals.Cy,100000); legend("Histogram"); grid on; 
+% title("$C_y$", 'Interpreter', 'latex'); xlabel('Residuals'); ylabel('Probability Density'); hold off;
+% subplot(2,3,3);
+% % plot(res.norm.x(:,3), res.norm.pdf_normal(:,3), 'LineWidth', 2); hold on;
+% histogram(OLS.ID.M2.Residuals.Cz,10000); legend("Histogram"); grid on;
+% title("$C_z$", 'Interpreter', 'latex'); xlabel('Residuals'); ylabel('Probability Density'); hold off;
+% subplot(2,3,4);
+% % plot(res.norm.x(:,4), res.norm.pdf_normal(:,4), 'LineWidth', 2); hold on;
+% histogram(OLS.ID.M2.Residuals.Cl,350000); legend("Histogram"); grid on;
+% title("$C_l$", 'Interpreter', 'latex'); xlabel('Residuals'); ylabel('Probability Density'); hold off;
+% subplot(2,3,5);
+% % plot(res.norm.x(:,5), res.norm.pdf_normal(:,5), 'LineWidth', 2); hold on;
+% histogram(OLS.ID.M2.Residuals.Cm,100000); legend("Histogram"); grid on;
+% title("$C_m$", 'Interpreter', 'latex'); xlabel('Residuals'); ylabel('Probability Density'); hold off;
+% subplot(2,3,6);
+% % plot(res.norm.x(:,6), res.norm.pdf_normal(:,6), 'LineWidth', 2); hold on;
+% histogram(OLS.ID.M2.Residuals.Cn,200000); legend("Histogram"); grid on;
+% title("$C_n$", 'Interpreter', 'latex'); xlabel('Residuals'); ylabel('Probability Density'); hold off;
+
+%% Residual Mean Analysis
+% res.meanresiduals = [mean(OLS.ID.M2.Residuals.Cx), mean(OLS.ID.M2.Residuals.Cy), mean(OLS.ID.M2.Residuals.Cz), ...
+%                     mean(OLS.ID.M2.Residuals.Cl), mean(OLS.ID.M2.Residuals.Cm), mean(OLS.ID.M2.Residuals.Cn)];
+% res.meanresidualsrel = [mean(OLS.ID.M2.Residuals.Cx)/OLS.ID.M2.RMSResiduals.Cx*100, mean(OLS.ID.M2.Residuals.Cy)/OLS.ID.M2.RMSResiduals.Cy*100, mean(OLS.ID.M2.Residuals.Cz)/OLS.ID.M2.RMSResiduals.Cz*100, ...
+%                         mean(OLS.ID.M2.Residuals.Cl)/OLS.ID.M2.RMSResiduals.Cl*100, mean(OLS.ID.M2.Residuals.Cm)/OLS.ID.M2.RMSResiduals.Cm*100, mean(OLS.ID.M2.Residuals.Cn/OLS.ID.M2.RMSResiduals.Cn*100)];
+% 
+% res.resmean.rr =    [OLS.ID.M2.Residuals.Cx.^2, OLS.ID.M2.Residuals.Cy.^2, OLS.ID.M2.Residuals.Cz.^2, ...
+%             OLS.ID.M2.Residuals.Cl.^2, OLS.ID.M2.Residuals.Cm.^2, OLS.ID.M2.Residuals.Cn.^2, ];
+% res.resmean.cov =   [cov(OLS.ID.M2.Residuals.Cx), cov(OLS.ID.M2.Residuals.Cy), cov(OLS.ID.M2.Residuals.Cz), ...
+%             cov(OLS.ID.M2.Residuals.Cl), cov(OLS.ID.M2.Residuals.Cm), cov(OLS.ID.M2.Residuals.Cn)];
+% res.resmean.diff = res.resmean.rr - res.resmean.cov;
+% res.resmean.diffmean = mean(res.resmean.diff, 1);
+% res.resmean.diffmeanrel = res.resmean.diffmean./res.resmean.cov*100;
+
+%% Residual Autocorrelation Analysis
+
+% Durbin-Watson Test for Autocorrelation Analysis, DW<<2 means there is
+% positive autocorrelation among the residuals
+% [res.P(1), res.DW(1)] = dwtest(OLS.ID.M2.Residuals.Cx, OLS.ID.M2.X.XCx);
+% [res.P(2), res.DW(2)] = dwtest(OLS.ID.M2.Residuals.Cy, OLS.ID.M2.X.XCy);
+% [res.P(3), res.DW(3)] = dwtest(OLS.ID.M2.Residuals.Cz, OLS.ID.M2.X.XCz);
+% [res.P(4), res.DW(4)] = dwtest(OLS.ID.M2.Residuals.Cl, OLS.ID.M2.X.XCl);
+% [res.P(5), res.DW(5)] = dwtest(OLS.ID.M2.Residuals.Cm, OLS.ID.M2.X.XCm);
+% [res.P(6), res.DW(6)] = dwtest(OLS.ID.M2.Residuals.Cn, OLS.ID.M2.X.XCn);
+% 
+% % Autocorrelation Plots
+% figure('Position', [100, 100, 700, 500]);
+% 
+% subplot(2,3,1);
+% [c,lags] = xcorr(OLS.ID.M2.Residuals.Cx);
+% ACSEk = sqrt(length(OLS.ID.M2.Residuals.Cx)^-1*(1+2*sum(c.^2)));
+% plot(lags,c)
+% hold on;
+% plot([min(lags), max(lags)], [ACSEk*1.96/sqrt(length(OLS.ID.M2.Residuals.Cx)), ACSEk*1.96/sqrt(length(OLS.ID.M2.Residuals.Cx))], 'r--');
+% plot([min(lags), max(lags)], [ACSEk*-1.96/sqrt(length(OLS.ID.M2.Residuals.Cx)), ACSEk*-1.96/sqrt(length(OLS.ID.M2.Residuals.Cx))], 'r--'); 
+% hold off; grid on;
+% title("$C_x$", 'Interpreter', 'latex');
+% legend("Autocorrelation","95% Confidence Bounds");
+% 
+% subplot(2,3,2);
+% [c,lags] = xcorr(OLS.ID.M2.Residuals.Cy);
+% ACSEk = sqrt(length(OLS.ID.M2.Residuals.Cy)^-1*(1+2*sum(c.^2)));
+% plot(lags,c)
+% hold on;
+% plot([min(lags), max(lags)], [ACSEk*1.96/sqrt(length(OLS.ID.M2.Residuals.Cy)), ACSEk*1.96/sqrt(length(OLS.ID.M2.Residuals.Cy))], 'r--');
+% plot([min(lags), max(lags)], [ACSEk*-1.96/sqrt(length(OLS.ID.M2.Residuals.Cy)), ACSEk*-1.96/sqrt(length(OLS.ID.M2.Residuals.Cy))], 'r--'); 
+% hold off; grid on;
+% title("$C_y$", 'Interpreter', 'latex');
+% legend("Autocorrelation","95% Confidence Bounds");
+% 
+% subplot(2,3,3);
+% [c,lags] = xcorr(OLS.ID.M2.Residuals.Cz);
+% ACSEk = sqrt(length(OLS.ID.M2.Residuals.Cz)^-1*(1+2*sum(c.^2)));
+% plot(lags,c)
+% hold on;
+% plot([min(lags), max(lags)], [ACSEk*1.96/sqrt(length(OLS.ID.M2.Residuals.Cz)), ACSEk*1.96/sqrt(length(OLS.ID.M2.Residuals.Cz))], 'r--');
+% plot([min(lags), max(lags)], [ACSEk*-1.96/sqrt(length(OLS.ID.M2.Residuals.Cz)), ACSEk*-1.96/sqrt(length(OLS.ID.M2.Residuals.Cz))], 'r--'); 
+% hold off; grid on;
+% title("$C_z$", 'Interpreter', 'latex');
+% legend("Autocorrelation","95% Confidence Bounds");
+% 
+% subplot(2,3,4);
+% [c,lags] = xcorr(OLS.ID.M2.Residuals.Cl);
+% ACSEk = sqrt(length(OLS.ID.M2.Residuals.Cl)^-1*(1+2*sum(c.^2)));
+% plot(lags,c)
+% hold on;
+% plot([min(lags), max(lags)], [ACSEk*1.96/sqrt(length(OLS.ID.M2.Residuals.Cl)), ACSEk*1.96/sqrt(length(OLS.ID.M2.Residuals.Cl))], 'r--');
+% plot([min(lags), max(lags)], [ACSEk*-1.96/sqrt(length(OLS.ID.M2.Residuals.Cl)), ACSEk*-1.96/sqrt(length(OLS.ID.M2.Residuals.Cl))], 'r--'); 
+% hold off; grid on;
+% title("$C_l$", 'Interpreter', 'latex');
+% legend("Autocorrelation","95% Confidence Bounds");
+% 
+% subplot(2,3,5);
+% [c,lags] = xcorr(OLS.ID.M2.Residuals.Cm);
+% ACSEk = sqrt(length(OLS.ID.M2.Residuals.Cm)^-1*(1+2*sum(c.^2)));
+% plot(lags,c)
+% hold on;
+% plot([min(lags), max(lags)], [ACSEk*1.96/sqrt(length(OLS.ID.M2.Residuals.Cm)), ACSEk*1.96/sqrt(length(OLS.ID.M2.Residuals.Cm))], 'r--');
+% plot([min(lags), max(lags)], [ACSEk*-1.96/sqrt(length(OLS.ID.M2.Residuals.Cm)), ACSEk*-1.96/sqrt(length(OLS.ID.M2.Residuals.Cm))], 'r--'); 
+% hold off; grid on;
+% title("$C_m$", 'Interpreter', 'latex');
+% legend("Autocorrelation","95% Confidence Bounds");
+% 
+% subplot(2,3,6);
+% [c,lags] = xcorr(OLS.ID.M2.Residuals.Cn);
+% ACSEk = sqrt(length(OLS.ID.M2.Residuals.Cn)^-1*(1+2*sum(c.^2)));
+% plot(lags,c)
+% hold on;
+% plot([min(lags), max(lags)], [ACSEk*1.96/sqrt(length(OLS.ID.M2.Residuals.Cn)), ACSEk*1.96/sqrt(length(OLS.ID.M2.Residuals.Cn))], 'r--');
+% plot([min(lags), max(lags)], [ACSEk*-1.96/sqrt(length(OLS.ID.M2.Residuals.Cn)), ACSEk*-1.96/sqrt(length(OLS.ID.M2.Residuals.Cn))], 'r--'); 
+% hold off; grid on;
+% title("$C_n$", 'Interpreter', 'latex');
+% legend("Autocorrelation","95% Confidence Bounds");

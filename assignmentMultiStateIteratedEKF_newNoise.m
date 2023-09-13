@@ -1,0 +1,532 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%   IEKF With noise standard deviation of alpha=2.0deg and beta=3.5deg
+%
+%   Author: Y.J.E. Prencipe, based on C.C. de Visser
+%   Student Number: 4777158
+%   Course: AE4320 System Identification of Aerospace Vehicles
+%   Place: Delft University of Technology, 2023
+%   Email: y.j.e.prencipe@student.tudelft.nl
+%   Version: 3.0
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% clc;
+% close all;
+% clear all;
+% randn('seed', 7);
+% load('da3211_2.mat');
+% load('dadoublet_1.mat');
+load('de3211_1.mat');
+% load('dedoublet_1.mat');
+% load('dr3211_1.mat');
+% load('dr3211_2.mat');
+
+% fileNumber = fileNumber;
+% dataFile = ["da3211_2.mat", "dadoublet_1.mat", "de3211_1.mat", "dedoublet_1.mat", "dr3211_1.mat", "dr3211_2.mat"];
+% dataSet  = dataFile(fileNumber);
+% load(dataSet);
+
+%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Set simulation parameters
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+dt              = t(end)/length(t); % sample time
+N               = length(t);        % sample size
+epsilon         = 1e-12;
+doIEKF          = 1;                % set 1 for IEKF and 0 for EKF
+maxIterations   = 100;
+
+%% Position Calculation
+%Initialize Wind Compensated Position Vectors in Navigation Frame
+x_n = [0]; y_n = [0]; z_n = [0];
+
+Wind            = 1;            % Set to 1 if wind is needed in the computation, otherwise set to 0
+if (Wind)
+    W = [2;-8;1]; 
+else
+    W = [0; 0; 0];
+end
+
+[u,v,w] = deal(zeros(length(t),1));
+posE = [0;0;0]; 
+
+for i = 1:length(t)-1
+
+    vel_E = [u_n(i);v_n(i);w_n(i)];
+    posE(:,i+1) = posE(:,i) + (vel_E+0) * dt;
+
+    DCM = [cos(theta(i))*cos(psi(i)), sin(phi(i))*sin(theta(i))*cos(psi(i))-cos(phi(i))*sin(psi(i)), cos(phi(i))*sin(theta(i))*cos(psi(i))+sin(phi(i))*sin(psi(i));...
+           cos(theta(i))*sin(psi(i)), sin(phi(i))*sin(theta(i))*sin(psi(i))+cos(phi(i))*cos(psi(i)), cos(phi(i))*sin(theta(i))*sin(psi(i))-sin(phi(i))*cos(psi(i));...
+          -sin(theta(i))            , sin(phi(i))*cos(theta(i))                                    , cos(phi(i))*cos(theta(i))];
+    
+    vel_body = DCM\(vel_E - W);
+
+    [u(i),v(i),w(i)] = deal(vel_body(1),vel_body(2),vel_body(3));
+end
+
+[u(end), v(end), w(end)] = deal(u(end-1), v(end-1), w(end-1)); 
+[x_n, y_n, z_n] = deal(posE(1,:),posE(2,:),posE(3,:));
+V = sqrt(u.^2+v.^2+w.^2);
+alpha = atan(w./u);
+beta = atan(v./sqrt(u.^2+w.^2));    
+
+%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Set initial values for states and statistics
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+E_x_0       = [0;0;0; 120;0;0; 0;0;0; 0;0;0; 0;0;0; 0.003;0;0];  % initial estimate of optimal value of x_k1_k_1
+
+% Initial estimate for covariance matrix
+std_x_0     = [1,1,1, 1,1,1, 1,1,1, 1,1,1, 0.1,10,0.1, 1,1,1];
+P_0         = diag(std_x_0.^2);
+
+% System noise statistics:
+E_w         = [0.02, 0.02, 0.02, deg2rad(0.003), deg2rad(0.003), deg2rad(0.003)];           % bias of system noise
+std_w       = [0.02, 0.02, 0.02, deg2rad(0.003), deg2rad(0.003), deg2rad(0.003)];           % standard deviations of system noise
+Q           = diag(std_w.^2);   % variance of system noise
+n           = 18;    % number of states
+w_k         = diag(std_w)*randn(6, N)  + diag(E_w)*ones(6, N);   % system noise
+
+% Measurement noise statistics:
+E_v         = 0;                        % bias of measurement noise
+std_v       = [2.5,2.5,2.5, 0.02,0.02,0.02, deg2rad(0.05),deg2rad(0.05),deg2rad(0.05), 0.1,deg2rad(0.1),deg2rad(0.1)]; % standard deviation of measurement noise
+std_v2      = [2.5,2.5,2.5, 0.02,0.02,0.02, deg2rad(0.05),deg2rad(0.05),deg2rad(0.05), 0.1,deg2rad(2.0),deg2rad(3.5)];
+R           = diag(std_v.^2);           % variance of measurement noise
+R2          = diag(std_v2.^2);           % variance of measurement noise
+nm          = length(std_v);            % number of measurements      
+v_k         = diag(std_v) * randn(nm, N)  + diag(E_v) * ones(nm, N);    % measurement noise
+v_k2         = diag(std_v2) * randn(nm, N)  + diag(E_v) * ones(nm, N);    % measurement noise
+
+%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Generate batch with true and measurement data
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+X_k         = [x_n; y_n; z_n; u'; v'; w'; phi'; theta'; psi'; W(1)*ones(1,N); W(2)*ones(1,N); W(3)*ones(1,N); E_w(1)*ones(1,N); E_w(2)*ones(1,N); E_w(3)*ones(1,N); ...
+                E_w(4)*ones(1,N); E_w(5)*ones(1,N); E_w(6)*ones(1,N)];      % true state
+X_k2         = [x_n; y_n; z_n; u'; v'; w'; phi'; theta'; psi'; W(1)*ones(1,N); W(2)*ones(1,N); W(3)*ones(1,N); E_w(1)*ones(1,N); E_w(2)*ones(1,N); E_w(3)*ones(1,N); ...
+                E_w(4)*ones(1,N); E_w(5)*ones(1,N); E_w(6)*ones(1,N)];      % true state
+Z_k         = [x_n; y_n; z_n; u_n'; v_n'; w_n'; phi'; theta'; psi'; V'; alpha'; beta'] + v_k;     % measurement with measurement noise statistics (noise and bias)
+Z_k2         = [x_n; y_n; z_n; u_n'; v_n'; w_n'; phi'; theta'; psi'; V'; alpha'; beta'] + v_k2;     % measurement with measurement noise statistics (noise and bias)
+U_k         = [Ax'; Ay'; Az'; p'; q'; r'] + w_k;    % input with input statistics (noise and bias)
+U_k2         = [Ax'; Ay'; Az'; p'; q'; r'] + w_k;    % input with input statistics (noise and bias)
+
+
+%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Initialize Iterated Extended Kalman filter
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+t_k             = 0; 
+t_k1            = dt;
+
+XX_k1_k1        = zeros(n, N); XX_k1_k12        = zeros(n, N);
+PP_k1_k1        = zeros(n, n, N); PP_k1_k12        = zeros(n, n, N);
+STD_x_cor       = zeros(n, N); STD_x_cor2       = zeros(n, N);
+STD_z           = zeros(nm, N); STD_z2           = zeros(nm, N);
+ZZ_pred         = zeros(nm, N); ZZ_pred2         = zeros(nm, N);
+ 
+x_k1_k1         = E_x_0;    % x(0|0)=E{x_0}
+x_k1_k12         = E_x_0;    % x(0|0)=E{x_0}
+P_k1_k1         = P_0;      % P(0|0)=P(0)
+P_k1_k12         = P_0;      % P(0|0)=P(0)
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Run the Extended Kalman filter
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+tic;
+
+% Run the filter through all N samples
+for k = 1:N
+
+    % x(k+1|k) (prediction)
+    [t, x_k1_k]     = rk4(@assignment_kf_calc_f, x_k1_k1, U_k(:,k), [t_k, t_k1]);
+    [t, x_k1_k2]    = rk4(@assignment_kf_calc_f, x_k1_k12, U_k2(:,k), [t_k, t_k1]); 
+
+    % z(k+1|k) (predicted observation)
+    z_k1_k      = assignment_kf_calc_h(x_k1_k);     % prediction of observation
+    z_k1_k2      = assignment_kf_calc_h(x_k1_k2);     % prediction of observation
+
+    % Calc Phi(k+1,k) and Gamma(k+1, k)
+    Fx              = assignment_kf_calc_Fx(0, x_k1_k, U_k(:,k)); % perturbation of f(x,u,t)
+    Fx2              = assignment_kf_calc_Fx(0, x_k1_k2, U_k2(:,k)); % perturbation of f(x,u,t)
+
+    % the continuous to discrete time transformation of Df(x,u,t) and G
+    G = kf_noise_mat(x_k1_k); 
+    G2 = kf_noise_mat(x_k1_k2);
+    [Phi, Gamma]    = c2d(Fx, G, dt);
+    [Phi2, Gamma2]    = c2d(Fx2, G2, dt);  
+    
+    % P(k+1|k) (prediction covariance matrix)
+    P_k1_k           = Phi*P_k1_k1*Phi' + Gamma*Q*Gamma';
+    P_k1_k2           = Phi2*P_k1_k12*Phi2' + Gamma2*Q*Gamma2'; 
+   
+    % Run the Iterated Extended Kalman filter (if doIEKF = 1), else run standard EKF
+    if (doIEKF)
+        % do the iterative part
+        eta2    = x_k1_k;
+        eta22    = x_k1_k2;
+        err     = 2*epsilon;
+
+        itts    = 0;
+        while (err > epsilon)
+            if (itts >= maxIterations)
+                fprintf('Terminating IEKF: exceeded max iterations (%d)\n', maxIterations);
+                break
+            end
+            itts    = itts + 1;
+            eta1    = eta2;
+            eta12    = eta22;
+
+            % Construct the Jacobian H = d/dx(h(x))) with h(x) the observation model transition matrix 
+            Hx      = assignment_kf_calc_Hx(0, eta1, U_k(:,k));
+            Hx2      = assignment_kf_calc_Hx(0, eta12, U_k2(:,k)); 
+            
+            % P_zz(k+1|k) (covariance matrix of innovation)
+            P_zz        = (Hx*P_k1_k * Hx' + R);            % covariance matrix of observation error
+            P_zz2        = (Hx2*P_k1_k2 * Hx2' + R2);            % covariance matrix of observation error
+            std_z       = sqrt(diag(P_zz));                 % standard deviation of observation error (for validation)
+            std_z2       = sqrt(diag(P_zz2));                 % standard deviation of observation error (for validation)
+
+            % calculate the Kalman gain matrix
+            K       = P_k1_k*Hx'/P_zz;
+            K2       = P_k1_k2*Hx2'/P_zz2;
+            % new observation state
+            z_p     = assignment_kf_calc_h(eta1);
+            z_p2     = assignment_kf_calc_h(eta12);
+
+            eta2    = x_k1_k + K*(Z_k(:,k) - z_p - Hx*(x_k1_k - eta1));
+            eta22    = x_k1_k2 + K2*(Z_k2(:,k) - z_p2 - Hx2*(x_k1_k2 - eta12));
+            err     = norm((eta2 - eta1), inf) / norm(eta1, inf);
+        end
+
+        IEKFitcount(k)  = itts;
+        x_k1_k1         = eta2;
+        x_k1_k12         = eta22;
+    else
+        % Correction
+        Hx          = assignment_kf_calc_Hx(0, x_k1_k, U_k(:,k));   % perturbation of h(x,u,t)
+        
+        % P_zz(k+1|k) (covariance matrix of innovation)
+        P_zz        = (Hx*P_k1_k * Hx' + R);            % covariance matrix of observation error
+        std_z       = sqrt(diag(P_zz));                 % standard deviation of observation error (for validation) 
+        
+        % K(k+1) (gain)    
+        K           = P_k1_k*Hx'/P_zz;
+        
+        % Calculate optimal state x(k+1|k+1) 
+        x_k1_k1     = x_k1_k + K*(Z_k(:,k) - z_k1_k); 
+    end
+                            
+    P_k1_k1         = (eye(n) - K*Hx)*P_k1_k*(eye(n) - K*Hx)' + K*R*K';
+    P_k1_k12         = (eye(n) - K2*Hx2)*P_k1_k2*(eye(n) - K2*Hx2)' + K2*R2*K2';
+    P_cor           = diag(P_k1_k1);
+    P_cor2           = diag(P_k1_k12);
+    std_x_cor       = sqrt(diag(P_k1_k1));
+    std_x_cor2       = sqrt(diag(P_k1_k12));
+
+    % Next step
+    t_k             = t_k1; 
+    t_k1            = t_k1 + dt;
+    
+    % store results
+    XX_k1_k1(:,k)   = x_k1_k1;
+    XX_k1_k12(:,k)   = x_k1_k12;
+    PP_k1_k1(:,:,k) = P_k1_k1;
+    PP_k1_k12(:,:,k) = P_k1_k12;
+    STD_x_cor(:,k)  = std_x_cor;
+    STD_x_cor2(:,k)  = std_x_cor2;
+    STD_z(:,k)      = std_z;
+    STD_z2(:,k)      = std_z2;
+    ZZ_pred(:,k)    = z_k1_k;   % store this observation prediction, since later prediction observations
+                                % are corrected using the actual observation
+    ZZ_pred2(:,k)    = z_k1_k2;   % store this observation prediction, since later prediction observations
+                                % are corrected using the actual observation
+end
+
+time = toc;
+
+%%
+% calculate state estimation error (in real life this is unknown!)
+EstErr_x    = (XX_k1_k1-X_k);
+EstErr_x2    = (XX_k1_k12-X_k2);
+mean_EstErr_x = mean(EstErr_x, 2);
+mean_EstErr_x2 = mean(EstErr_x2, 2);
+diffmean = (mean_EstErr_x2(:)-mean_EstErr_x(:))./mean_EstErr_x(:);
+diffmeanmean = mean(diffmean)
+
+% calculate measurement estimation error (possible in real life)
+EstErr_z    = ZZ_pred-Z_k;
+
+fprintf('EKF state estimation error RMS = %d, completed run with %d samples in %2.2f seconds.\n', sqrt(mse(EstErr_x)), N, time);
+
+close all;
+
+%% Covariance of Biases
+% figure(1000);
+% subplot(2,3,1)
+% [c,lags] = xcorr(XX_k1_k1(13,:));
+% plot(lags,c); xlim([-200,200]);
+% subplot(2,3,2)
+% [c,lags] = xcorr(XX_k1_k1(14,:));
+% plot(lags,c); xlim([-200,200]);
+% subplot(2,3,3)
+% [c,lags] = xcorr(XX_k1_k1(15,:));
+% plot(lags,c); xlim([-200,200]);
+% subplot(2,3,4)
+% [c,lags] = xcorr(rad2deg(XX_k1_k1(16,:)));
+% plot(lags,c); xlim([-200,200]);
+% subplot(2,3,5)
+% [c,lags] = xcorr(rad2deg(XX_k1_k1(17,:)));
+% plot(lags,c); xlim([-200,200]);
+% subplot(2,3,6)
+% [c,lags] = xcorr(rad2deg(XX_k1_k1(18,:)));
+% plot(lags,c); xlim([-200,200]);
+
+%% Bias Percentage Error
+% bias_error = zeros(6,1);
+% bias_error(1) = (XX_k1_k1(13,end)-E_w(1))/E_w(1)*100;
+% bias_error(2) = (XX_k1_k1(14,end)-E_w(2))/E_w(2)*100;
+% bias_error(3) = (XX_k1_k1(15,end)-E_w(3))/E_w(3)*100;
+% bias_error(4) = (XX_k1_k1(16,end)-E_w(4))/E_w(4)*100;
+% bias_error(5) = (XX_k1_k1(17,end)-E_w(5))/E_w(5)*100;
+% bias_error(6) = (XX_k1_k1(18,end)-E_w(6))/E_w(6)*100;
+
+%% Plot of accelerometer and gyro bias estimates
+% x = 1:N;
+% 
+% figure('Position', [100, 100, 700, 500]);
+% subplot(2,3,1);
+% plot(x,X_k(13,:), 'b', x,XX_k1_k1(13,:), 'r'); grid on;
+% ylim([1.95e-02, 2.1e-02]);
+% legend('True state', 'Estimated state', 'Location', 'southeast'); title("\lambda_x");
+% subplot(2,3,2);
+% plot(x,X_k(14,:), 'b', x,XX_k1_k1(14,:), 'r'); grid on;
+% ylim([1.85e-02, 2.15e-02]);
+% legend('True state', 'Estimated state', 'Location', 'southeast'); title("\lambda_y");
+% subplot(2,3,3);
+% plot(x,X_k(15,:), 'b', x,XX_k1_k1(15,:), 'r'); grid on;
+% ylim([0.015, 0.030]);
+% legend('True state', 'Estimated state', 'Location', 'southeast'); title("\lambda_z");
+% subplot(2,3,4);
+% plot(x,rad2deg(X_k(16,:)), 'b', x,rad2deg(XX_k1_k1(16,:)), 'r');  grid on;
+% ylim([-0.0028, 5.5e-03]);
+% legend('True state', 'Estimated state', 'Location', 'southeast'); title("\lambda_p");
+% subplot(2,3,5);
+% plot(x,rad2deg(X_k(17,:)), 'b', x,rad2deg(XX_k1_k1(17,:)), 'r'); grid on;
+% ylim([2.5e-03, 3.5e-03]);
+% legend('True state', 'Estimated state', 'Location', 'southeast'); title("\lambda_q");
+% subplot(2,3,6);
+% plot(x,rad2deg(X_k(18,:)), 'b', x,rad2deg(XX_k1_k1(18,:)), 'r'); grid on;
+% ylim([2.5e-03, 3.5e-03]);
+% legend('True state', 'Estimated state', 'Location', 'southeast'); title("\lambda_r");
+
+%% Plot of All Estimated States
+% x = 1:N;
+% 
+% f = figure(1001);
+% f.Position = [100,100,1400,900];
+% hold on;
+% grid on;
+% subplot(6,2,1);
+% plot(x,X_k(1,:), 'b', x,XX_k1_k1(1,:), 'r', x, XX_k1_k12(1,:), 'k-'); grid on;
+% ylabel("[m]")
+% legend('True state', 'Estimated state', 'alpha=2.0, beta=3.5', 'Location', 'southeast'); title("x");
+% subplot(6,2,3);
+% plot(x,X_k(2,:), 'b', x,XX_k1_k1(2,:), 'r', x, XX_k1_k12(2,:), 'k-'); grid on;
+% ylabel("[m]")
+% legend('True state', 'Estimated state', 'alpha=2.0, beta=3.5', 'Location', 'southeast'); title("y");
+% subplot(6,2,5);
+% plot(x,X_k(3,:), 'b', x,XX_k1_k1(3,:), 'r', x, XX_k1_k12(3,:), 'k-'); grid on;
+% ylabel("[m]")
+% legend('True state', 'Estimated state', 'alpha=2.0, beta=3.5', 'Location', 'southeast'); title("z");
+% subplot(6,2,7);
+% plot(x,X_k(4,:), 'b', x,XX_k1_k1(4,:), 'r', x, XX_k1_k12(4,:), 'k-'); grid on;
+% ylabel("[m/s]")
+% legend('True state', 'Estimated state', 'alpha=2.0, beta=3.5', 'Location', 'southeast'); title("u");
+% subplot(6,2,9);
+% plot(x,X_k(5,:), 'b', x,XX_k1_k1(5,:), 'r', x, XX_k1_k12(5,:), 'k-'); grid on;
+% ylabel("[m/s]")
+% legend('True state', 'Estimated state', 'alpha=2.0, beta=3.5', 'Location', 'southeast'); title("v");
+% subplot(6,2,11);
+% plot(x,X_k(6,:), 'b', x,XX_k1_k1(6,:), 'r', x, XX_k1_k12(6,:), 'k-'); grid on;
+% ylabel("[m/s]")
+% legend('True state', 'Estimated state', 'alpha=2.0, beta=3.5', 'Location', 'southeast'); title("w");
+% 
+% subplot(6,2,2);
+% plot(x,rad2deg(X_k(7,:)), 'b', x, rad2deg(XX_k1_k1(7,:)), 'r', x, rad2deg(XX_k1_k12(7,:)), 'k-'); grid on;
+% ylabel("[deg]")
+% legend('True state', 'Estimated state', 'alpha=2.0, beta=3.5', 'Location', 'southeast'); title("\phi");
+% subplot(6,2,4);
+% plot(x,rad2deg(X_k(8,:)), 'b', x,rad2deg(XX_k1_k1(8,:)), 'r', x, rad2deg(XX_k1_k12(8,:)), 'k-'); grid on;
+% ylabel("[deg]")
+% legend('True state', 'Estimated state', 'alpha=2.0, beta=3.5', 'Location', 'southeast'); title("\theta");
+% subplot(6,2,6);
+% plot(x,rad2deg(X_k(9,:)), 'b', x,rad2deg(XX_k1_k1(9,:)), 'r', x, rad2deg(XX_k1_k12(9,:)), 'k-'); grid on;
+% ylabel("[deg]")
+% legend('True state', 'Estimated state', 'alpha=2.0, beta=3.5', 'Location', 'southeast'); title("\psi");
+% subplot(6,2,8);
+% plot(x,X_k(10,:), 'b', x,XX_k1_k1(10,:), 'r', x, XX_k1_k12(10,:), 'k-'); grid on;
+% ylabel("[m/s]")
+% legend('True state', 'Estimated state', 'alpha=2.0, beta=3.5', 'Location', 'southeast'); title("W_x");
+% subplot(6,2,10);
+% plot(x,X_k(11,:), 'b', x,XX_k1_k1(11,:), 'r', x, XX_k1_k12(11,:), 'k-'); grid on;
+% ylabel("[m/s]")
+% legend('True state', 'Estimated state', 'alpha=2.0, beta=3.5', 'Location', 'southeast'); title("W_y");
+% subplot(6,2,12);
+% plot(x,X_k(12,:), 'b', x,XX_k1_k1(12,:), 'r', x, XX_k1_k12(12,:), 'k-'); grid on;
+% ylabel("[m/s]")
+% legend('True state', 'Estimated state', 'alpha=2.0, beta=3.5', 'Location', 'southeast'); title("W_z");
+
+%%
+% figure('Position', [100, 100, 700, 500]);
+% subplot(3,2,1);
+% plot(x,X_k(13,:), 'b', x,XX_k1_k1(13,:), 'r', x, XX_k1_k12(13,:), 'k-'); grid on;
+% ylabel("[m/s^2]")
+% ylim([1.95e-02, 2.2e-02]);
+% % legend('True state', 'Estimated state','alpha=2.0, beta=3.5', 'Location', 'southeast'); 
+% title("\lambda_x");
+% subplot(3,2,2);
+% plot(x,X_k(14,:), 'b', x,XX_k1_k1(14,:), 'r', x, XX_k1_k12(14,:), 'k-'); grid on;
+% ylabel("[m/s^2]")
+% ylim([1.85e-02, 2.15e-02]);
+% % legend('True state', 'Estimated state','alpha=2.0, beta=3.5', 'Location', 'southeast'); 
+% title("\lambda_y");
+% subplot(3,2,3);
+% plot(x,X_k(15,:), 'b', x,XX_k1_k1(15,:), 'r', x, XX_k1_k12(15,:), 'k-'); grid on;
+% ylabel("[m/s^2]")
+% % legend('True state', 'Estimated state','alpha=2.0, beta=3.5', 'Location', 'southeast'); 
+% title("\lambda_z");
+% subplot(3,2,4);
+% plot(x,rad2deg(X_k(16,:)), 'b', x,rad2deg(XX_k1_k1(16,:)), 'r', x, rad2deg(XX_k1_k12(16,:)), 'k-');  grid on;
+% ylim([-0.0018, 3.5e-03]); ylabel("[deg]")
+% legend('True state', 'Estimated state','alpha=2.0, beta=3.5', 'Location', 'southeast'); 
+% title("\lambda_p");
+% subplot(3,2,5);
+% plot(x,rad2deg(X_k(17,:)), 'b', x,rad2deg(XX_k1_k1(17,:)), 'r', x, rad2deg(XX_k1_k12(17,:)), 'k-'); grid on;
+% ylim([2.5e-03, 3.5e-03]); ylabel("[deg]")
+% % legend('True state', 'Estimated state','alpha=2.0, beta=3.5', 'Location', 'southeast'); 
+% title("\lambda_q");
+% subplot(3,2,6);
+% plot(x,rad2deg(X_k(18,:)), 'b', x,rad2deg(XX_k1_k1(18,:)), 'r', x, rad2deg(XX_k1_k12(18,:)), 'k-'); grid on;
+% ylim([2.5e-03, 3.5e-03]); ylabel("[deg]")
+% % legend('True state', 'Estimated state','alpha=2.0, beta=3.5', 'Location', 'southeast'); 
+% title("\lambda_r");
+
+% f = figure(1002);
+% f.Position = [100,100,1400,900];
+% hold on;
+% grid on;
+% subplot(6,3,1);
+% plot(x, EstErr_x(1,:), 'b', x, STD_x_cor(1,:), 'r', x, -STD_x_cor(1,:), 'g');
+% axis([0, N, min(EstErr_x(1,:)), max(EstErr_x(1,:))]);
+% legend('Estimation error', 'Upper error STD', 'Lower error STD', 'Location', 'northeast');
+% title('State estimation error with STD');
+% subplot(6,3,2);
+% plot(x, EstErr_x(2,:), 'b', x, STD_x_cor(2,:), 'r', x, -STD_x_cor(2,:), 'g');
+% axis([0, N, min(EstErr_x(2,:)), max(EstErr_x(2,:))]);
+% subplot(6,3,3);
+% plot(x, EstErr_x(3,:), 'b', x, STD_x_cor(3,:), 'r', x, -STD_x_cor(3,:), 'g');
+% axis([0, N, min(EstErr_x(3,:)), max(EstErr_x(3,:))]);
+% subplot(6,3,4);
+% plot(x, EstErr_x(4,:), 'b', x, STD_x_cor(4,:), 'r', x, -STD_x_cor(4,:), 'g');
+% axis([0, N, min(EstErr_x(4,:)), max(EstErr_x(4,:))]);
+% subplot(6,3,5);
+% plot(x, EstErr_x(5,:), 'b', x, STD_x_cor(5,:), 'r', x, -STD_x_cor(5,:), 'g');
+% axis([0, N, min(EstErr_x(5,:)), max(EstErr_x(5,:))]);
+% subplot(6,3,6);
+% plot(x, EstErr_x(6,:), 'b', x, STD_x_cor(6,:), 'r', x, -STD_x_cor(6,:), 'g');
+% axis([0, N, min(EstErr_x(6,:)), max(EstErr_x(6,:))]);
+% subplot(6,3,7);
+% plot(x, EstErr_x(7,:), 'b', x, STD_x_cor(7,:), 'r', x, -STD_x_cor(7,:), 'g');
+% axis([0, N, min(EstErr_x(7,:)), max(EstErr_x(7,:))]);
+% subplot(6,3,8);
+% plot(x, EstErr_x(8,:), 'b', x, STD_x_cor(8,:), 'r', x, -STD_x_cor(8,:), 'g');
+% axis([0, N, min(EstErr_x(8,:)), max(EstErr_x(8,:))]);
+% subplot(6,3,9);
+% plot(x, EstErr_x(9,:), 'b', x, STD_x_cor(9,:), 'r', x, -STD_x_cor(9,:), 'g');
+% axis([0, N, min(EstErr_x(9,:)), max(EstErr_x(9,:))]);
+% subplot(6,3,10);
+% plot(x, EstErr_x(10,:), 'b', x, STD_x_cor(10,:), 'r', x, -STD_x_cor(10,:), 'g');
+% axis([0, N, min(EstErr_x(10,:)), max(EstErr_x(10,:))]);
+% subplot(6,3,11);
+% plot(x, EstErr_x(11,:), 'b', x, STD_x_cor(11,:), 'r', x, -STD_x_cor(11,:), 'g');
+% axis([0, N, min(EstErr_x(11,:)), max(EstErr_x(11,:))]);
+% subplot(6,3,12);
+% plot(x, EstErr_x(12,:), 'b', x, STD_x_cor(12,:), 'r', x, -STD_x_cor(12,:), 'g');
+% axis([0, N, min(EstErr_x(12,:)), max(EstErr_x(12,:))]);
+% subplot(6,3,13);
+% plot(x, EstErr_x(13,:), 'b', x, STD_x_cor(13,:), 'r', x, -STD_x_cor(13,:), 'g');
+% axis([0, N, min(EstErr_x(13,:)), max(EstErr_x(13,:))]);
+% subplot(6,3,14);
+% plot(x, EstErr_x(14,:), 'b', x, STD_x_cor(14,:), 'r', x, -STD_x_cor(14,:), 'g');
+% axis([0, N, min(EstErr_x(14,:)), max(EstErr_x(14,:))]);
+% subplot(6,3,15);
+% plot(x, EstErr_x(15,:), 'b', x, STD_x_cor(15,:), 'r', x, -STD_x_cor(15,:), 'g');
+% axis([0, N, min(EstErr_x(15,:)), max(EstErr_x(15,:))]);
+% subplot(6,3,16);
+% plot(x, EstErr_x(16,:), 'b', x, STD_x_cor(16,:), 'r', x, -STD_x_cor(16,:), 'g');
+% axis([0, N, min(EstErr_x(16,:)), max(EstErr_x(16,:))]);
+% subplot(6,3,17);
+% plot(x, EstErr_x(17,:), 'b', x, STD_x_cor(17,:), 'r', x, -STD_x_cor(17,:), 'g');
+% axis([0, N, min(EstErr_x(17,:)), max(EstErr_x(17,:))]);
+% subplot(6,3,18);
+% plot(x, EstErr_x(18,:), 'b', x, STD_x_cor(18,:), 'r', x, -STD_x_cor(18,:), 'g');
+% axis([0, N, min(EstErr_x(18,:)), max(EstErr_x(18,:))]);
+% 
+% f = figure(1003);
+% f.Position = [100,100,1400,900];
+% hold on;
+% grid on;
+% subplot(4,3,1);
+% plot(x, EstErr_z(1,:), 'b', x, STD_z(1,:), 'r', x, -STD_z(1,:), 'g');
+% axis([0, N, min(EstErr_z(1,:)), max(EstErr_z(1,:))]);
+% legend('Measurement estimation error', 'Upper error STD', 'Lower error STD', 'Location', 'northeast');
+% title('Measurement estimation error with STD');
+% subplot(4,3,2);
+% plot(x, EstErr_z(2,:), 'b', x, STD_z(2,:), 'r', x, -STD_z(2,:), 'g');
+% axis([0, N, min(EstErr_z(2,:)), max(EstErr_z(2,:))]);
+% subplot(4,3,3);
+% plot(x, EstErr_z(3,:), 'b', x, STD_z(3,:), 'r', x, -STD_z(3,:), 'g');
+% axis([0, N, min(EstErr_z(3,:)), max(EstErr_z(3,:))]);
+% subplot(4,3,4);
+% plot(x, EstErr_z(4,:), 'b', x, STD_z(4,:), 'r', x, -STD_z(4,:), 'g');
+% axis([0, N, -0.03, 0.03]);
+% subplot(4,3,5);
+% plot(x, EstErr_z(5,:), 'b', x, STD_z(5,:), 'r', x, -STD_z(5,:), 'g');
+% axis([0, N, -0.03, 0.03]);
+% subplot(4,3,6);
+% plot(x, EstErr_z(6,:), 'b', x, STD_z(6,:), 'r', x, -STD_z(6,:), 'g');
+% axis([0, N, -0.03, 0.03]);
+% subplot(4,3,7);
+% plot(x, rad2deg(EstErr_z(7,:)), 'b', x, rad2deg(STD_z(7,:)), 'r', x, rad2deg(-STD_z(7,:)), 'g');
+% axis([0, N, -0.07, 0.07]);
+% subplot(4,3,8);
+% plot(x, rad2deg(EstErr_z(8,:)), 'b', x, rad2deg(STD_z(8,:)), 'r', x, rad2deg(-STD_z(8,:)), 'g');
+% axis([0, N, -0.07, 0.07]);
+% subplot(4,3,9);
+% plot(x, rad2deg(EstErr_z(9,:)), 'b', x, rad2deg(STD_z(9,:)), 'r', x, rad2deg(-STD_z(9,:)), 'g');
+% axis([0, N, -0.07, 0.07]);
+% subplot(4,3,10);
+% plot(x, EstErr_z(10,:), 'b', x, STD_z(10,:), 'r', x, -STD_z(10,:), 'g');
+% axis([0, N, -0.15, 0.15]);
+% subplot(4,3,11);
+% plot(x, rad2deg(EstErr_z(11,:)), 'b', x, rad2deg(STD_z(11,:)), 'r', x, rad2deg(-STD_z(11,:)), 'g');
+% axis([0, N, -0.15, 0.15]);
+% subplot(4,3,12);
+% plot(x, rad2deg(EstErr_z(12,:)), 'b', x, rad2deg(STD_z(12,:)), 'r', x, rad2deg(-STD_z(12,:)), 'g');
+% axis([0, N, -0.15, 0.15]);
+% 
+% f = figure(1004);
+% figure(f);
+% set(f, 'Position', [100 420 600 400], 'defaultaxesfontsize', 10, 'defaulttextfontsize', 10, 'PaperPositionMode', 'auto');
+% hold on;
+% grid on;
+% plot(IEKFitcount, 'b');
+% ylim([0, max(IEKFitcount)]);
+% title('IEKF iterations at each sample');
+
+%% Create Dumpfile
+% save dumpfile XX_k1_k1 ZZ_pred U_k N parEstIter parEstCX dataSet
+% clear
+% load dumpfile

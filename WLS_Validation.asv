@@ -1,0 +1,153 @@
+% Define Concatenated X Matrices
+WLS.VAL.X.XCx_datasets = [];
+WLS.VAL.X.XCy_datasets = [];
+WLS.VAL.X.XCz_datasets = [];
+WLS.VAL.X.XCl_datasets = [];
+WLS.VAL.X.XCm_datasets = [];
+WLS.VAL.X.XCn_datasets = [];
+% Define Concatenated X Matrices for Alternative Model Structure
+WLS.VAL.M2.X.XCx = [];
+WLS.VAL.M2.X.XCy = [];
+WLS.VAL.M2.X.XCz = [];
+WLS.VAL.M2.X.XCl = [];
+WLS.VAL.M2.X.XCm = [];
+WLS.VAL.M2.X.XCn = [];
+% Define Concatenated Y Matrices
+WLS.VAL.Y.YCx_datasets = [];
+WLS.VAL.Y.YCy_datasets = [];
+WLS.VAL.Y.YCz_datasets = [];
+WLS.VAL.Y.YCl_datasets = [];
+WLS.VAL.Y.YCm_datasets = [];
+WLS.VAL.Y.YCn_datasets = [];
+
+for i=5:6
+
+    % Run IEKF for Selected File
+    fileNumber = i;
+    dataFile = ["da3211_2.mat", "dadoublet_1.mat", "de3211_1.mat", "dr3211_1.mat", "dedoublet_1.mat", "dr3211_2.mat", "concatenatedData.mat"];
+    dataSet  = dataFile(fileNumber);
+    load(dataSet);
+    assignmentMultiStateIteratedEKF;
+    
+    % Bias Estimates
+    lambdax = mean(XX_k1_k1(13,:), "all"); 
+    lambday = mean(XX_k1_k1(14,:), "all"); 
+    lambdaz = mean(XX_k1_k1(15,:), "all"); 
+    lambdap = mean(XX_k1_k1(16,:), "all"); 
+    lambdaq = mean(XX_k1_k1(17,:), "all"); 
+    lambdar = mean(XX_k1_k1(18,:), "all"); 
+    
+     % Measured Inputs U_k Corrected for Bias (hence they still include Noise)
+    Axc = U_k(1,:) - lambdax;   % c denotes 'corrected'
+    Ayc = U_k(2,:) - lambday;
+    Azc = U_k(3,:) - lambdaz;
+    pc  = U_k(4,:) - lambdap;
+    qc  = U_k(5,:) - lambdaq;
+    rc  = U_k(6,:) - lambdar;
+    
+    % Angular acceleration rates using gradient function
+    pdot = sgolayfilt(gradient(pc,dt), 3, 31);
+    qdot = sgolayfilt(gradient(qc,dt), 3, 101);
+    rdot = sgolayfilt(gradient(rc,dt), 3, 31);
+    
+    % Measured Outputs (hence still including noise)
+    Vm       = Z_k(10,:);       % m denotes 'measured'
+    alpham   = Z_k(11,:)';
+    betam    = Z_k(12,:)';
+
+    qnorm     = (qc./Vm)'.*c;
+    rnorm   = (rc./(2*Vm))'.*b;
+    pnorm   = (pc./(2*Vm))'.*b;
+
+    WLS.VAL.Y.YCx_datasets = [WLS.VAL.Y.YCx_datasets; (m*Axc./(1/2*rho*Vm.^2*S))'];
+    WLS.VAL.Y.YCy_datasets = [WLS.VAL.Y.YCy_datasets; (m*Ayc./(1/2*rho*Vm.^2*S))'];
+    WLS.VAL.Y.YCz_datasets = [WLS.VAL.Y.YCz_datasets; (m*Azc./(1/2*rho*Vm.^2*S))'];
+    WLS.VAL.Y.YCl_datasets = [WLS.VAL.Y.YCl_datasets; ((pdot*Ixx + qc.*rc*(Izz-Iyy) - (pc.*qc+rdot)*Ixz) ./ (1/2*rho*Vm.^2*S*b))'];
+    WLS.VAL.Y.YCm_datasets = [WLS.VAL.Y.YCm_datasets; ((qdot*Iyy + rc.*pc*(Ixx-Izz) - (pc.^2-rc.^2)*Ixz) ./ (1/2*rho*Vm.^2*S*c))'];
+    WLS.VAL.Y.YCn_datasets = [WLS.VAL.Y.YCn_datasets; ((rdot*Izz + pc.*qc*(Iyy-Ixx) + (qc.*rc-pdot)*Ixz) ./ (1/2*rho*Vm.^2*S*b))'];
+    
+    WLS.VAL.X.XCx_datasets = [WLS.VAL.X.XCx_datasets; [ones(N,1), alpham, alpham.^2, qnorm, de, Tc1+Tc2]];
+    WLS.VAL.X.XCy_datasets = [WLS.VAL.X.XCy_datasets; [ones(N,1), betam, (pc./(2*Vm))'.*b, (rc./(2*Vm))'.*b, da, dr]];
+    WLS.VAL.X.XCz_datasets = [WLS.VAL.X.XCz_datasets; [ones(N,1), alpham, qnorm, de, Tc1+Tc2]];
+    WLS.VAL.X.XCl_datasets = [WLS.VAL.X.XCl_datasets; [ones(N,1), betam, (pc./(2*Vm))'.*b, (rc./(2*Vm))'.*b, da, dr]];
+    WLS.VAL.X.XCm_datasets = [WLS.VAL.X.XCm_datasets; [ones(N,1), alpham, qnorm, de, Tc1+Tc2]];
+    WLS.VAL.X.XCn_datasets = [WLS.VAL.X.XCn_datasets; [ones(N,1), betam, (pc./(2*Vm))'.*b, (rc./(2*Vm))'.*b, da, dr]];
+
+    M2structure;
+    WLS.VAL.M2.X.XCx = [WLS.VAL.M2.X.XCx; M2.Cx];
+    WLS.VAL.M2.X.XCy = [WLS.VAL.M2.X.XCy; M2.Cy];
+    WLS.VAL.M2.X.XCz = [WLS.VAL.M2.X.XCz; M2.Cz];
+    WLS.VAL.M2.X.XCl = [WLS.VAL.M2.X.XCl; M2.Cl];
+    WLS.VAL.M2.X.XCm = [WLS.VAL.M2.X.XCm; M2.Cm];
+    WLS.VAL.M2.X.XCn = [WLS.VAL.M2.X.XCn; M2.Cn];
+
+end
+
+% Model Calculation
+WLS.VAL.Model.Cx = WLS.VAL.X.XCx_datasets * WLS.ID.Param.ThetaCx;     % !!!! USES IDENTIFIED PARAMETERS !!!! %
+WLS.VAL.Model.Cy = WLS.VAL.X.XCy_datasets * WLS.ID.Param.ThetaCy;
+WLS.VAL.Model.Cz = WLS.VAL.X.XCz_datasets * WLS.ID.Param.ThetaCz;
+WLS.VAL.Model.Cl = WLS.VAL.X.XCl_datasets * WLS.ID.Param.ThetaCl;
+WLS.VAL.Model.Cm = WLS.VAL.X.XCm_datasets * WLS.ID.Param.ThetaCm;
+WLS.VAL.Model.Cn = WLS.VAL.X.XCn_datasets * WLS.ID.Param.ThetaCn;
+% Alternative Model Structure
+WLS.VAL.M2.Model.Cx = WLS.VAL.M2.X.XCx * WLS.ID.M2.Param.ThetaCx;
+WLS.VAL.M2.Model.Cy = WLS.VAL.M2.X.XCy * WLS.ID.M2.Param.ThetaCy;
+WLS.VAL.M2.Model.Cz = WLS.VAL.M2.X.XCz * WLS.ID.M2.Param.ThetaCz;
+WLS.VAL.M2.Model.Cl = WLS.VAL.M2.X.XCl * WLS.ID.M2.Param.ThetaCl;
+WLS.VAL.M2.Model.Cm = WLS.VAL.M2.X.XCm * WLS.ID.M2.Param.ThetaCm;
+WLS.VAL.M2.Model.Cn = WLS.VAL.M2.X.XCn * WLS.ID.M2.Param.ThetaCn;
+
+% Residuals
+WLS.VAL.Residuals.Cx = WLS.VAL.Y.YCx_datasets - WLS.VAL.Model.Cx;
+WLS.VAL.Residuals.Cy = WLS.VAL.Y.YCy_datasets - WLS.VAL.Model.Cy;
+WLS.VAL.Residuals.Cz = WLS.VAL.Y.YCz_datasets - WLS.VAL.Model.Cz;
+WLS.VAL.Residuals.Cl = WLS.VAL.Y.YCl_datasets - WLS.VAL.Model.Cl;
+WLS.VAL.Residuals.Cm = WLS.VAL.Y.YCm_datasets - WLS.VAL.Model.Cm;
+WLS.VAL.Residuals.Cn = WLS.VAL.Y.YCn_datasets - WLS.VAL.Model.Cn;
+% Alternative Model Structure
+WLS.VAL.M2.Residuals.Cx = diag(WLS.ID.W.WCx).^(-1/2).*(WLS.VAL.Y.YCx_datasets - WLS.VAL.M2.Model.Cx);
+WLS.VAL.M2.Residuals.Cy = diag(WLS.ID.W.WCx).^(-1/2).*(WLS.VAL.Y.YCy_datasets - WLS.VAL.M2.Model.Cy);
+WLS.VAL.M2.Residuals.Cz = diag(WLS.ID.W.WCx).^(-1/2).*(WLS.VAL.Y.YCz_datasets - WLS.VAL.M2.Model.Cz);
+WLS.VAL.M2.Residuals.Cl = diag(WLS.ID.W.WCx).^(-1/2).*(WLS.VAL.Y.YCl_datasets - WLS.VAL.M2.Model.Cl);
+WLS.VAL.M2.Residuals.Cm = diag(WLS.ID.W.WCx).^(-1/2).*(WLS.VAL.Y.YCm_datasets - WLS.VAL.M2.Model.Cm);
+WLS.VAL.M2.Residuals.Cn = diag(WLS.ID.W.WCn).^(-1/2).*(WLS.VAL.Y.YCn_datasets - WLS.VAL.M2.Model.Cn);
+
+% RMS Residuals
+WLS.VAL.RMSResiduals.Cx = sqrt(mean(abs(WLS.VAL.Residuals.Cx)).^2);
+WLS.VAL.RMSResiduals.Cy = sqrt(mean(abs(WLS.VAL.Residuals.Cy)).^2);
+WLS.VAL.RMSResiduals.Cz = sqrt(mean(abs(WLS.VAL.Residuals.Cz)).^2);
+WLS.VAL.RMSResiduals.Cl = sqrt(mean(abs(WLS.VAL.Residuals.Cl)).^2);
+WLS.VAL.RMSResiduals.Cm = sqrt(mean(abs(WLS.VAL.Residuals.Cm)).^2);
+WLS.VAL.RMSResiduals.Cn = sqrt(mean(abs(WLS.VAL.Residuals.Cn)).^2);
+% Alternative Model Structure
+WLS.VAL.M2.RMSResiduals.Cx = sqrt(mean(abs(WLS.VAL.M2.Residuals.Cx)).^2);
+WLS.VAL.M2.RMSResiduals.Cy = sqrt(mean(abs(WLS.VAL.M2.Residuals.Cy)).^2);
+WLS.VAL.M2.RMSResiduals.Cz = sqrt(mean(abs(WLS.VAL.M2.Residuals.Cz)).^2);
+WLS.VAL.M2.RMSResiduals.Cl = sqrt(mean(abs(WLS.VAL.M2.Residuals.Cl)).^2);
+WLS.VAL.M2.RMSResiduals.Cm = sqrt(mean(abs(WLS.VAL.M2.Residuals.Cm)).^2);
+WLS.VAL.M2.RMSResiduals.Cn = sqrt(mean(abs(WLS.VAL.M2.Residuals.Cn)).^2);
+
+
+%%
+% R2    
+WLS.VAL.R2.Cx = my_Rsquared_coeff(WLS.VAL.Y.YCx_datasets, WLS.VAL.Model.Cx);
+WLS.VAL.R2.Cy = my_Rsquared_coeff(WLS.VAL.Y.YCy_datasets, WLS.VAL.Model.Cy);
+WLS.VAL.R2.Cz = my_Rsquared_coeff(WLS.VAL.Y.YCz_datasets, WLS.VAL.Model.Cz);
+WLS.VAL.R2.Cl = my_Rsquared_coeff(WLS.VAL.Y.YCl_datasets, WLS.VAL.Model.Cl);
+WLS.VAL.R2.Cm = my_Rsquared_coeff(WLS.VAL.Y.YCm_datasets, WLS.VAL.Model.Cm);
+WLS.VAL.R2.Cn = my_Rsquared_coeff(WLS.VAL.Y.YCn_datasets, WLS.VAL.Model.Cn);
+% Alternative Model Structure
+WLS.VAL.M2.R2.Cx = my_Rsquared_coeff(WLS.VAL.Y.YCx_datasets, WLS.VAL.M2.Model.Cx);
+WLS.VAL.M2.R2.Cy = my_Rsquared_coeff(WLS.VAL.Y.YCy_datasets, WLS.VAL.M2.Model.Cy);
+WLS.VAL.M2.R2.Cz = my_Rsquared_coeff(WLS.VAL.Y.YCz_datasets, WLS.VAL.M2.Model.Cz);
+WLS.VAL.M2.R2.Cl = my_Rsquared_coeff(WLS.VAL.Y.YCl_datasets, WLS.VAL.M2.Model.Cl);
+WLS.VAL.M2.R2.Cm = my_Rsquared_coeff(WLS.VAL.Y.YCm_datasets, WLS.VAL.M2.Model.Cm);
+WLS.VAL.M2.R2.Cn = my_Rsquared_coeff(WLS.VAL.Y.YCn_datasets, WLS.VAL.M2.Model.Cn);
+
+disp("WLS Validation Complete")
+
+
+
+
+
