@@ -46,9 +46,6 @@ Data Files:
 - Identification Dataset: "da3211_2.mat", "dadoublet_1.mat", "de3211_1.mat", "dr3211_1.mat"
 - Validation Dataset: "dedoublet_1.mat", "dr3211_2.mat"
 
-
-================================================================================================
-
 Contact Details
 ----------------
 Name:			Ynias J.E. Prencipe 
