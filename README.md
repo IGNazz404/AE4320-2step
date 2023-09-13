@@ -54,5 +54,3 @@ Contact Details
 Name:			Ynias J.E. Prencipe 
 Student Number:		4777158
 Student e-mail:		y.j.e.prencipe@student.tudelft.nl
-Prefered e-mail: 	ynias.prencipe1999@gmail.com
-Phone Number:		+32 487 53 72 48
